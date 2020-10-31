@@ -176,10 +176,10 @@ Resources:
                 curl https://s3.amazonaws.com/amazon-ec2launch-v2/windows/amd64/latest/AmazonEC2Launch.msi -o AmazonEC2Launch.msi &
                 AmazonEC2Launch.msi /quiet &
                 powershell -Command "& 'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent-ctl.ps1' -a fetch-config -m ec2 -s -c file:'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json'" &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/ASGWithCustomImage/uidspwds.ps1 -o C:\Install\uidspwds.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/ASGWithCustomImage/part1.ps1 -o C:\Install\part1.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/ASGWithCustomImage/part2.ps1 -o C:\Install\part2.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/ASGWithCustomImage/CreateWebpage.ps1 -o C:\Install\CreateWebpage.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/ASGWithCustomImage/ASGNode/uidspwds.ps1 -o C:\Install\uidspwds.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/ASGWithCustomImage/ASGNode/part1.ps1 -o C:\Install\part1.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/ASGWithCustomImage/ASGNode/part2.ps1 -o C:\Install\part2.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/ASGWithCustomImage/ASGNode/CreateWebpage.ps1 -o C:\Install\CreateWebpage.ps1 &
                 Powershell.exe -File c:\install\part1.ps1
           services:
             windows:

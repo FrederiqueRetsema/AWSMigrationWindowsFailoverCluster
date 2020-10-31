@@ -164,11 +164,11 @@ Resources:
                 powershell -Command "& 'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent-ctl.ps1' -a fetch-config -m ec2 -s -c file:'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json'"
             03-Downloads:
               command: >
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Demo/part1.ps1 -o c:\install\part1.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Demo/part2.ps1 -o c:\install\part2.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Demo/part3.ps1 -o c:\install\part3.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Demo/curl1sec.ps1 -o c:\curl1sec.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Demo/uidspwds.ps1 -o c:\install\uidspwds.ps1 
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Demo/part1.ps1 -o c:\install\part1.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Demo/part2.ps1 -o c:\install\part2.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Demo/part3.ps1 -o c:\install\part3.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Demo/curl1sec.ps1 -o c:\curl1sec.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Demo/uidspwds.ps1 -o c:\install\uidspwds.ps1 
             04-StartPowershell:
               command: Powershell.exe -File c:\install\part1.ps1
           services:

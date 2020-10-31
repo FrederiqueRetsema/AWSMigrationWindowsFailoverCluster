@@ -167,9 +167,9 @@ Resources:
                 powershell -Command "& 'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent-ctl.ps1' -a fetch-config -m ec2 -s -c file:'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json'"
             03-Downloads:
               command: >
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/DC/part1.ps1 -o c:\install\part1.ps1 & 
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/DC/part2.ps1 -o c:\install\part2.ps1 & 
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/DC/uidspwds.ps1 -o c:\install\uidspwds.ps1 
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/DC/part1.ps1 -o c:\install\part1.ps1 & 
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/DC/part2.ps1 -o c:\install\part2.ps1 & 
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/DC/uidspwds.ps1 -o c:\install\uidspwds.ps1 
             04-StartInstall:
               command: powershell -File c:\install\part1.ps1
           services:

@@ -1,5 +1,5 @@
-$SourceDirectory = "D:\Clone\AMIS-unpublished\AWSMigrationWindowsFailoverCluster\ASGWithCustomImage\LambdaFunctions"
-$ZipDirectory    = "D:\Clone\AMIS-unpublished\AWSMigrationWindowsFailoverCluster\ASGWithCustomImage\LambdaFunctions\Zip"
+$SourceDirectory = "D:\Clone\AWSMigrationWindowsFailoverCluster\ASGWithCustomImage\LambdaFunctions"
+$ZipDirectory    = "D:\Clone\AWSMigrationWindowsFailoverCluster\ASGWithCustomImage\LambdaFunctions\Zip"
 $TempDirectory   = "D:\Temp"
 $S3BucketName    = "fra-euwest1"
 

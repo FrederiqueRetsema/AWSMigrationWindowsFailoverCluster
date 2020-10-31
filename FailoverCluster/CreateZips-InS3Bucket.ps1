@@ -1,5 +1,5 @@
-$SourceDirectory = "D:\Clone\AMIS-unpublished\AWSMigrationWindowsFailoverCluster\FailoverCluster\LambdaFunctions"
-$ZipDirectory    = "D:\Clone\AMIS-unpublished\AWSMigrationWindowsFailoverCluster\FailoverCluster\LambdaFunctions\Zip"
+$SourceDirectory = "D:\Clone\AWSMigrationWindowsFailoverCluster\FailoverCluster\LambdaFunctions"
+$ZipDirectory    = "D:\Clone\AWSMigrationWindowsFailoverCluster\FailoverCluster\LambdaFunctions\Zip"
 $TempDirectory   = "D:\Temp"
 $S3BucketName    = "fra-euwest1"
 

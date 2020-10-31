@@ -1,8 +1,8 @@
 # CreateZips-InS3Bucket.ps1
 # =========================
 
-$SourceDirectory = "D:\Clone\AMIS-unpublished\AWSMigrationWindowsFailoverCluster\ASG\LambdaFunctions"
-$ZipDirectory    = "D:\Clone\AMIS-unpublished\AWSMigrationWindowsFailoverCluster\ASG\LambdaFunctions\Zip"
+$SourceDirectory = "D:\Clone\AWSMigrationWindowsFailoverCluster\ASG\LambdaFunctions"
+$ZipDirectory    = "D:\Clone\AWSMigrationWindowsFailoverCluster\ASG\LambdaFunctions\Zip"
 $TempDirectory   = "D:\Temp"
 $S3BucketName    = "fra-euwest1"
 

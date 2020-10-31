@@ -224,24 +224,24 @@ Resources:
                 echo $COMPUTERNAME = "${ClusterNodeName}" > C:\Install\computername.ps1 
             04-Downloads:
               command: >
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/uidspwds.ps1 -o C:\Install\uidspwds.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/part1.ps1 -o C:\Install\part1.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/part2.ps1 -o C:\Install\part2.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/part3.ps1 -o C:\Install\part3.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/part4.ps1 -o C:\Install\part4.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/part5.ps1 -o C:\Install\part5.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/ChangeUsernameOfAWSService.ps1 -o C:\Install\ChangeUsernameOfAWSService.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Configure-NetworkCards.ps1 -o C:\Install\Configure-NetworkCards.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/CreateWebpage.ps1 -o C:\Install\CreateWebpage.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Configure-Cluster.ps1 -o C:\Install\Configure-Cluster.ps1 &
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-Terminate.ps1 -o c:\ClusterScripts\Cluster-Terminate.ps1 &                
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-Close.ps1 -o c:\ClusterScripts\Cluster-Close.ps1 &                
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-Open.ps1 -o c:\ClusterScripts\Cluster-Open.ps1 &                
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-IsAlive.ps1 -o c:\ClusterScripts\Cluster-IsAlive.ps1 &                
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-LooksAlive.ps1 -o c:\ClusterScripts\Cluster-LooksAlive.ps1 &                
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-Offline.ps1 -o c:\ClusterScripts\Cluster-Offline.ps1 &                
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-Online.ps1 -o c:\ClusterScripts\Cluster-Online.ps1 &                
-                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/myclusteriis-entrypoints.vbs -o c:\ClusterScripts\myclusteriis-entrypoints.vbs
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/uidspwds.ps1 -o C:\Install\uidspwds.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/part1.ps1 -o C:\Install\part1.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/part2.ps1 -o C:\Install\part2.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/part3.ps1 -o C:\Install\part3.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/part4.ps1 -o C:\Install\part4.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/part5.ps1 -o C:\Install\part5.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/ChangeUsernameOfAWSService.ps1 -o C:\Install\ChangeUsernameOfAWSService.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/Configure-NetworkCards.ps1 -o C:\Install\Configure-NetworkCards.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/CreateWebpage.ps1 -o C:\Install\CreateWebpage.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/Configure-Cluster.ps1 -o C:\Install\Configure-Cluster.ps1 &
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/Cluster-Terminate.ps1 -o c:\ClusterScripts\Cluster-Terminate.ps1 &                
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/Cluster-Close.ps1 -o c:\ClusterScripts\Cluster-Close.ps1 &                
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/Cluster-Open.ps1 -o c:\ClusterScripts\Cluster-Open.ps1 &                
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/Cluster-IsAlive.ps1 -o c:\ClusterScripts\Cluster-IsAlive.ps1 &                
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/Cluster-LooksAlive.ps1 -o c:\ClusterScripts\Cluster-LooksAlive.ps1 &                
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/Cluster-Offline.ps1 -o c:\ClusterScripts\Cluster-Offline.ps1 &                
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/Cluster-Online.ps1 -o c:\ClusterScripts\Cluster-Online.ps1 &                
+                curl https://raw.githubusercontent.com/FrederiqueRetsema/AWSMigrationWindowsFailoverCluster/master/FailoverCluster/Clusters/myclusteriis-entrypoints.vbs -o c:\ClusterScripts\myclusteriis-entrypoints.vbs
             05-StartPowershell:
               command: Powershell.exe -File c:\install\part1.ps1
           services:
