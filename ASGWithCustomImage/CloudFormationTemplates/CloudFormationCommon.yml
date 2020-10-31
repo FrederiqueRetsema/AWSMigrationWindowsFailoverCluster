@@ -1,0 +1,344 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation template for common objects (ASG) 
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "S3"
+        Parameters: 
+          - S3BucketName
+Parameters:
+  S3BucketName:
+    Description: 'Bucketname with zip files in the same region as where you are deploying this template'
+    Type: 'String'
+Metadata:
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "S3Bucket"
+        Parameters: 
+          - S3BucketName
+Parameters:
+  S3BucketName:
+    Description: "Bucket where the zipfiles are in"
+    Type: "String"
+    Default: "frpublic"
+
+Resources:
+
+  # CloudWatch log groups and log streams, incl. subscription filter
+
+  CloudWatchLogGroupCloudWatchAgent:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: "amazon-cloudwatch-agent.log"
+      RetentionInDays: 30
+  CloudWatchLogStreamCloudWatchAgent:
+    DependsOn: CloudWatchLogGroupCloudWatchAgent
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: "amazon-cloudwatch-agent.log"
+      LogStreamName: "ASGNode"
+
+  CloudWatchLogGroupInstall:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: "install_log.txt"
+      RetentionInDays: 30
+  CloudWatchLogStreamInstall:
+    DependsOn: CloudWatchLogGroupInstall
+    Type: AWS::Logs::LogStream
+    Properties: 
+      LogGroupName: "install_log.txt"
+      LogStreamName: "ASGNode"
+  CloudWatchLogSubscriptionFilter:
+    DependsOn: CloudWatchLogGroupInstall
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !GetAtt CreateOrDeletePowershellEventFunction.Arn
+      FilterPattern: "?CHECK ?START"
+      LogGroupName: !Ref CloudWatchLogGroupInstall
+
+  # Lambda functions
+
+  ParameterStartPowershellEventFunctionArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /check/startpowershelleventfunctionarn
+      Type: String
+      Value: !GetAtt StartPowershellEventFunction.Arn
+
+  PutParameterExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+              - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+  PutParameterExecutionRolePolicies:
+    DependsOn: PutParameterExecutionRole
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "CloudWatchAndSSMPutParameter"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:PutLogEvents"
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "ssm:PutParameter"
+              - "ssm:DeleteParameter"
+              - "kms:Decrypt"
+              - "kms:Encrypt"
+              - "kms:GenerateDataKey"
+            Resource: "*"
+      Roles:
+        -
+          Ref: "PutParameterExecutionRole"       
+  PutParameterFunction:
+    DependsOn: 
+    - PutParameterExecutionRole
+    - PutParameterExecutionRolePolicies
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: PutParameter.handler
+      Role: !GetAtt PutParameterExecutionRole.Arn
+      Timeout: 60
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: "PutParameter.zip"
+      Runtime: python3.8  
+
+  CloudwatchInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt CreateOrDeletePowershellEventFunction.Arn
+      Principal: "logs.amazonaws.com"
+      Action: "lambda:InvokeFunction"
+  CreateOrDeletePowershellEventExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+              - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+  CreateOrDeletePowershellEventExecutionPolicies:
+    DependsOn: CreateOrDeletePowershellEventExecutionRole
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "CloudWatchSSMAndEvents"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:PutLogEvents"
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "ssm:GetParameter"
+              - "events:PutRule"
+              - "events:PutTargets"
+              - "events:DeleteRule"
+              - "events:RemoveTargets"
+            Resource: "*"
+      Roles:
+        -
+          Ref: "CreateOrDeletePowershellEventExecutionRole"
+  CreateOrDeletePowershellEventFunction:
+    DependsOn: 
+    - CreateOrDeletePowershellEventExecutionRole
+    - CreateOrDeletePowershellEventExecutionPolicies
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: CreateOrDeletePowershellEvent.handler
+      Role: !GetAtt CreateOrDeletePowershellEventExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: "CreateOrDeletePowershellEvent.zip"
+      Runtime: python3.8
+      Timeout: 600
+
+  StartPowershellEventInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt StartPowershellEventFunction.Arn
+      Principal: "events.amazonaws.com"
+      Action: "lambda:InvokeFunction"
+  StartPowershellEventExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+              - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+  StartPowershellEventExecutionPolicies:
+    DependsOn: StartPowershellEventExecutionRole
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "CloudWatchSSMAndEvents"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:PutLogEvents"
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "ec2:DescribeInstances"
+              - "ssm:GetParameter"
+              - "ssm:SendCommand"
+              - "events:DeleteRule"
+              - "events:RemoveTargets"
+            Resource: "*"
+      Roles:
+        -
+          Ref: "StartPowershellEventExecutionRole"
+  StartPowershellEventFunction:
+    DependsOn: 
+    - StartPowershellEventExecutionRole
+    - StartPowershellEventExecutionPolicies
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: StartPowershellEvent.handler
+      Role: !GetAtt StartPowershellEventExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: "StartPowershellEvent.zip"
+      Runtime: python3.8
+      Timeout: 600
+
+  UpdateASGConfigurationExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+              - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+  UpdateASGConfigurationExecutionRolePolicies:
+    DependsOn: UpdateASGConfigurationExecutionRole
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "CloudWatchAndAutoscalingUpdateCommand"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:PutLogEvents"
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "autoscaling:UpdateAutoScalingGroup"
+            Resource: "*"
+      Roles:
+        -
+          Ref: "UpdateASGConfigurationExecutionRole"       
+  UpdateASGConfigurationFunction:
+    DependsOn: 
+    - UpdateASGConfigurationExecutionRole
+    - UpdateASGConfigurationExecutionRolePolicies
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: UpdateASGConfiguration.handler
+      Role: !GetAtt UpdateASGConfigurationExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: "UpdateASGConfiguration.zip"
+      Runtime: python3.8  
+      Timeout: 600
+
+  CreateImageExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+              - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+  CreateImageExecutionRolePolicies:
+    DependsOn: CreateImageExecutionRole
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "CloudWatchAndCreateImage"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:PutLogEvents"
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "ec2:DescribeInstances"
+              - "ec2:DescribeImages"
+              - "ec2:CreateImage"
+              - "ec2:DeregisterImage"
+              - "ec2:TerminateInstances"
+            Resource: "*"
+      Roles:
+        -
+          Ref: "CreateImageExecutionRole"
+  CreateImageFunction:
+    DependsOn: 
+    - CreateImageExecutionRole
+    - CreateImageExecutionRolePolicies
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: CreateImage.handler
+      Role: !GetAtt CreateImageExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: "CreateImage.zip"
+      Runtime: python3.8  
+      Timeout: 600
+
+Outputs:
+
+  PutParameterFunctionArn:
+    Description: "Arn of Lambda function PutParameterFunction"
+    Value: !GetAtt PutParameterFunction.Arn
+
+  UpdateASGConfigurationFunctionArn:
+    Description: "Arn of Lambda function UpdateASGConfigurationFunction"
+    Value: !GetAtt UpdateASGConfigurationFunction.Arn
+
+  CreateImageFunctionArn:
+     Description: 'Arn of Lambda function CreateImage'
+     Value: !GetAtt CreateImageFunction.Arn

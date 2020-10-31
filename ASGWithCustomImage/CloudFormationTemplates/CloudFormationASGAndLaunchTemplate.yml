@@ -1,0 +1,203 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ASG with 1 Windows node
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      -
+        Label: 
+          default: "EC2"
+        Parameters: 
+          - InstanceType
+          - KeyName
+          - AMIID
+          - SecurityGroup
+          - SubnetAZa
+          - SubnetAZb
+          - SubnetAZc
+          - VPCID
+      -
+        Label:
+          default: "Arns"
+        Parameters:
+          - TargetGroupArn
+Parameters:
+  InstanceType:
+     Description: 'Amazon EC2 instance type'
+     Type: 'String'
+     Default: 't3.medium' 
+     AllowedValues: 
+       - 't3.medium'
+       - 'm5a.xlarge'
+  KeyName:
+     Description: 'Name of an existing EC2 KeyPair'
+     Type: 'String'
+  AMIID:
+    Description: 'AMI to use'
+    Type: 'String'
+  SecurityGroup:
+    Description: 'SecurityGroup to use'
+    Type: 'String'
+  SubnetAZa:
+     Description: 'Subnet for this ASGNode in AZa'
+     Type: 'String'
+  SubnetAZb:
+     Description: 'Subnet for this ASGNode in AZb'
+     Type: 'String'
+  SubnetAZc:
+     Description: 'Subnet for this ASGNode in AZc'
+     Type: 'String'
+  TargetGroupArn:
+     Description: 'ARN for target group of the load balancer'
+     Type: 'String'
+  PutParameterFunctionArn:
+    Description: 'ARN of the Lambda function to put a parameter in the parameter store'
+    Type: 'String'
+  UpdateASGConfigurationFunctionArn:
+     Description: 'ARN for the UpdateASGConfiguration Lambda function'
+     Type: 'String'
+    
+Mappings:
+  AWSManagedRoles:
+    SSM:
+      AmazonSSMManagedInstanceCore: "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+
+Resources: 
+
+  # The CloudFormation AWS::SSM::Parameter doesn't allow overwrite. We need this parameter in both CloudFormationCreateImage and CloudFormationASGAndLaunchTemplate
+  # It has the same name and different values. The parameter is used in CreateWebsite.
+  ExecutePutParameterFunction:
+    Type: Custom::ExecutePutParameterFunction
+    Properties:
+      ServiceToken: !Ref PutParameterFunctionArn
+      ParameterName: "/asgnode/stackname"
+      ParameterType: "String"
+      ParameterValue: !Sub ${AWS::StackName}
+      ParameterDescription: "Stackname (for signalling completion)"
+
+  ASGEC2IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !FindInMap [ "AWSManagedRoles", "SSM", "AmazonSSMManagedInstanceCore"]
+  ASGEC2IAMRolePolicies:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "ASGEC2IAMRolePolicies"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: "ssm:GetParameter"
+            Resource: 
+              - "arn:aws:ssm:*:*:parameter/demo/failover/password"
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "logs:PutLogEvents"
+              - "autoscaling:CompleteLifecycleAction"
+            Resource: 
+              - "*"
+          - 
+            Effect: "Allow"
+            Action: 
+              - "ssm:GetParameter"
+            Resource: 
+              - "arn:aws:ssm:*:*:parameter/asgnode/stackname"
+
+      Roles:
+        -
+          Ref: "ASGEC2IAMRole"
+  ASGEC2IAMInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: "/"
+      Roles:
+        -
+          Ref: "ASGEC2IAMRole"
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: ASGNodeLaunchTemplate
+      LaunchTemplateData:
+        ImageId: !Ref AMIID
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        IamInstanceProfile: 
+          Name: !Ref ASGEC2IAMInstanceProfile
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: ASGNode
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: ASGNode
+        BlockDeviceMappings:
+        -
+          DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+        SecurityGroupIds:
+          - !Ref SecurityGroup
+        UserData: 
+          "Fn::Base64": 
+            !Sub |
+              <powershell>
+                Start-Service -Name "Amazon CloudWatch Agent"
+                cd c:\install
+                . c:\install\CreateWebpage.ps1
+              </powershell>
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: ASG 
+      VPCZoneIdentifier: 
+        - !Ref SubnetAZa
+        - !Ref SubnetAZb
+        - !Ref SubnetAZc
+      # Mind, that the ASG will be created using the default HealthCheckType EC2 and default HealthGracePeriod, 
+      # this type will be changed AFTER adding the life cycle hook to the ASG to prevent
+      # the ELB to stop the (first) instance (during CloudFormation enrollment) before it is 
+      # started completely
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      DesiredCapacity: 1
+      MinSize: 1
+      MaxSize: 1
+      TargetGroupARNs:
+      - !Ref TargetGroupArn
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT30M
+
+  AutoScalingLifeCycleHook:
+    Type: AWS::AutoScaling::LifecycleHook
+    Properties: 
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      HeartbeatTimeout: 900    # seconds = 15 min
+      LifecycleHookName: ASGNodeHook
+      LifecycleTransition: 'autoscaling:EC2_INSTANCE_LAUNCHING'
+
+  ExecuteUpdateASGConfiguration:
+    DependsOn: AutoScalingLifeCycleHook
+    Type: Custom::ExecuteUpdateASGConfiguration
+    Properties:
+      ServiceToken: !Ref UpdateASGConfigurationFunctionArn

@@ -1,0 +1,158 @@
+# CloudFormationASGWithCustomImage.yml
+# ====================================
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ASG with 1 node
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - Label: 
+          default: "EC2"
+        Parameters: 
+          - InstanceType
+          - KeyName
+          - AMI
+          - Password
+          - CheckPassword
+      - Label:
+          default: "Load Balancer parameters"
+        Parameters:
+          - HealthyThresholdCount
+          - UnhealthyThresholdCount
+          - HealthCheckTimeoutSeconds
+          - HealthCheckIntervalSeconds
+          - DeregistrationDelaySeconds
+      - Label: 
+          default: "S3"
+        Parameters: 
+          - S3BucketName
+Parameters:
+  InstanceType:
+     Description: 'Amazon EC2 instance type'
+     Type: 'String'
+     Default: 't3.medium' 
+     AllowedValues: 
+       - 't3.medium'
+       - 'm5a.xlarge'
+  KeyName:
+     Description: 'Name of an existing EC2 KeyPair'
+     Type: 'AWS::EC2::KeyPair::KeyName'
+  AMI:
+    Description: 'AMI to use'
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-windows-latest/Windows_Server-2019-English-Full-Base'
+  Password:
+    Description: 'Password for all userids in this demo application'
+    Type: 'String'
+    NoEcho: true
+  CheckPassword:
+    Description: 'Password for all userids in this demo application'
+    Type: 'String'
+    NoEcho: true    
+  HealthyThresholdCount: 
+    Description: "Healthy threshold (2-10, default 5)"
+    Type: Number
+    Default: 5
+  UnhealthyThresholdCount: 
+    Description: "Unhealthy threshold (2-10, default 2)"
+    Type: Number
+    Default: 2
+  HealthCheckTimeoutSeconds: 
+    Description: "Timeout (seconds 2-120, default 5)"
+    Type: Number
+    Default: 5
+  HealthCheckIntervalSeconds:
+    Description: "Interval (seconds 5-300, default 30)"
+    Type: Number
+    Default: 30
+  DeregistrationDelaySeconds:
+    Description: "Deregistration delay (seconds 0-3600, default 300 = 5 minutes)"
+    Type: Number
+    Default: 300
+  S3BucketName:
+    Description: 'Bucketname with zip files in the same region as where you are deploying this template'
+    Type: 'String'
+    Default: 'fra-euwest1'
+Conditions:
+    PasswordCheckCorrect: 
+      Fn::Equals: [!Ref Password, !Ref CheckPassword]
+
+Resources:
+
+  ExecutePutSecureParameter:
+    Condition: PasswordCheckCorrect
+    Type: Custom::ExecutePutSecureParameter
+    Properties:
+      ServiceToken: !GetAtt CommonStack.Outputs.PutParameterFunctionArn
+      ParameterName: "/demo/failover/password"
+      ParameterType: "SecureString"
+      ParameterValue: !Ref Password
+      ParameterDescription: "Password for demo application to compare failoverclustering and ASG"
+
+  CommonStack:
+    Condition: PasswordCheckCorrect
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/ASGWithCustomImage/CloudFormationCommon.yml"
+      TimeoutInMinutes: 5
+      Parameters:
+        S3BucketName: !Ref S3BucketName
+  NetworkStack:
+    Condition: PasswordCheckCorrect
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/ASGWithCustomImage/CloudFormationNetwork.yml"
+      TimeoutInMinutes: 10
+      Parameters:
+        HealthyThresholdCount: !Ref HealthyThresholdCount
+        UnhealthyThresholdCount: !Ref UnhealthyThresholdCount
+        HealthCheckTimeoutSeconds: !Ref HealthCheckTimeoutSeconds
+        HealthCheckIntervalSeconds: !Ref HealthCheckIntervalSeconds
+
+  CreateImageStack:
+    Condition: PasswordCheckCorrect
+    DependsOn: 
+      - CommonStack
+      - NetworkStack
+      - ExecutePutSecureParameter
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/ASGWithCustomImage/CloudFormationCreateImage.yml"
+      TimeoutInMinutes: 30
+      Parameters:
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        AMI: !Ref AMI
+        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroup
+        SubnetAZa: !GetAtt NetworkStack.Outputs.SubnetAZa
+        CreateImageFunctionArn: !GetAtt CommonStack.Outputs.CreateImageFunctionArn
+        PutParameterFunctionArn: !GetAtt CommonStack.Outputs.PutParameterFunctionArn
+
+  ASGAndLaunchTemplateStack:
+    Condition: PasswordCheckCorrect
+    DependsOn: 
+      - CommonStack
+      - NetworkStack
+      - ExecutePutSecureParameter
+      - CreateImageStack
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/ASGWithCustomImage/CloudFormationASGAndLaunchTemplate.yml"
+      TimeoutInMinutes: 30
+      Parameters:
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        AMIID: !GetAtt CreateImageStack.Outputs.ImageId
+        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroup
+        SubnetAZa: !GetAtt NetworkStack.Outputs.SubnetAZa
+        SubnetAZb: !GetAtt NetworkStack.Outputs.SubnetAZb
+        SubnetAZc: !GetAtt NetworkStack.Outputs.SubnetAZc
+        TargetGroupArn: !GetAtt NetworkStack.Outputs.TargetGroupArn
+        PutParameterFunctionArn: !GetAtt CommonStack.Outputs.PutParameterFunctionArn
+        UpdateASGConfigurationFunctionArn: !GetAtt CommonStack.Outputs.UpdateASGConfigurationFunctionArn
+
+Outputs:
+  ASGNodeLoadBalancerDNSAddress:
+    Description: "DNS Address of the load balancer"
+    Value: !GetAtt NetworkStack.Outputs.ASGNodeLoadBalancerDNSAddress

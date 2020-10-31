@@ -1,0 +1,216 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Windows DC and Failover cluster
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "EC2"
+        Parameters: 
+          - InstanceType
+          - KeyName
+          - AMIID
+          - SecurityGroup
+          - PublicSubnet
+          - IPAddress
+    ParameterLabels: 
+      SSMRole: 
+        default: "Never change this"
+Parameters:
+  InstanceType:
+     Description: 'Amazon EC2 instance type'
+     Type: 'String'
+     Default: 't3.medium' 
+     AllowedValues: 
+       - 't3.medium'
+       - 'm5a.xlarge'
+  KeyName:
+     Description: 'Name of an existing EC2 KeyPair'
+     Type: 'AWS::EC2::KeyPair::KeyName'
+     ConstraintDescription : 'must be the name of an existing EC2 KeyPair'
+  AMIID:
+    Description: 'AMI to use'
+    Type: 'String'
+  SecurityGroup:
+     Description: 'SecurityGroup for this DC'
+     Type: 'String'
+  PublicSubnet:
+     Description: 'PublicSubnet for this DC'
+     Type: 'String'
+  IPAddress:
+     Description: 'IP Address in PublicSubnet'
+     Type: 'String'
+Mappings:
+  AWSManagedRoles:
+    SSM:
+      AmazonSSMManagedInstanceCore: "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+
+Resources:
+
+  CloudWatchLogStreamCloudWatchAgent:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: "amazon-cloudwatch-agent.log"
+      LogStreamName: "Demo"
+  CloudWatchLogStreamInstall:
+    Type: AWS::Logs::LogStream
+    Properties: 
+      LogGroupName: "install_log.txt"
+      LogStreamName: "Demo"
+
+  DemoEC2IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !FindInMap [ "AWSManagedRoles", "SSM", "AmazonSSMManagedInstanceCore"]
+  DemoEC2IAMRolePolicies:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "ClusterEC2IAMRolePolicies"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: "ssm:GetParameter"
+            Resource: 
+              - "arn:aws:ssm:*:*:parameter/dc/ipaddress"
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "logs:PutLogEvents"
+            Resource: 
+              - "*"
+      Roles:
+        -
+          Ref: "DemoEC2IAMRole"
+  DemoEC2IAMInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: "/"
+      Roles:
+        -
+          Ref: "DemoEC2IAMRole"
+
+  Demo:
+    Type: AWS::EC2::Instance
+    Metadata:
+      'AWS::CloudFormation::Init':
+        config:
+          files:
+            'c:\cfn\cfn-hup.conf':
+              content: !Sub |
+                [main]
+                stack=${AWS::StackName}
+                region=${AWS::Region}
+                interval=2
+            'c:\cfn\hooks.d\cfn-auto-reloader.conf':
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.DC.Metadata.AWS::CloudFormation::Init
+                action=cfn-init.exe -v -s ${AWS::StackName} -r Demo --region ${AWS::Region}
+            'c:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json':
+              content: !Sub |
+                {
+                  "agent": {
+                    "metrics_collection_interval": 60,
+                    "logfile": "c:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\Logs\\amazon-cloudwatch-agent.log"
+                  },
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "c:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\Logs\\amazon-cloudwatch-agent.log",
+                            "log_group_name": "amazon-cloudwatch-agent.log",
+                            "log_stream_name": "Demo",
+                            "timezone": "UTC"
+                          },
+                          {
+                            "file_path": "C:\\Install\\install_log.txt",
+                            "log_group_name": "install_log.txt",
+                            "log_stream_name": "Demo",
+                            "encoding": "utf-16",
+                            "timezone": "UTC"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+          commands:
+            01-CreateDirectory:
+              command: mkdir c:\install
+            02-CLIAndCloudWatchAgent:
+              command: >
+                curl https://awscli.amazonaws.com/AWSCLIV2.msi -o AWSCLIv2.MSI & 
+                AWSCLIv2.MSI /quiet &
+                curl https://s3.amazonaws.com/amazoncloudwatch-agent/windows/amd64/latest/amazon-cloudwatch-agent.msi -o amazon-cloudwatch-agent.msi &
+                amazon-cloudwatch-agent.msi /quiet &
+                powershell -Command "& 'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent-ctl.ps1' -a fetch-config -m ec2 -s -c file:'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json'"
+            03-Downloads:
+              command: >
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Demo/part1.ps1 -o c:\install\part1.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Demo/part2.ps1 -o c:\install\part2.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Demo/part3.ps1 -o c:\install\part3.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Demo/curl1sec.ps1 -o c:\curl1sec.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Demo/uidspwds.ps1 -o c:\install\uidspwds.ps1 
+            04-StartPowershell:
+              command: Powershell.exe -File c:\install\part1.ps1
+          services:
+            windows:
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files: 
+                  - 'c:\cfn\cfn-hup.conf'
+                  - 'c:\cfn\hooks.d\cfn-auto-reloader.conf'
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT30M
+    Properties:
+        ImageId: !Ref AMIID
+        KeyName: !Ref KeyName
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile: !Ref DemoEC2IAMInstanceProfile
+        Tags:
+          - Key: Name
+            Value: Demo
+        BlockDeviceMappings:
+        -
+          DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+        NetworkInterfaces:
+        - DeleteOnTermination: true
+          Description: PublicNetwork
+          DeviceIndex: 0
+          GroupSet: 
+          - !Ref SecurityGroup
+          PrivateIpAddress: !Ref IPAddress
+          SubnetId: !Ref PublicSubnet
+        UserData: 
+          "Fn::Base64": 
+            !Sub |
+              <script>
+
+              cfn-init.exe -v -s ${AWS::StackName} -r Demo --region ${AWS::Region}
+              echo cfn-signal.exe -e %ERRORLEVEL% --stack=${AWS::StackName} --resource Demo --region ${AWS::Region} >> c:\\install\part3.ps1
+
+              shutdown /r
+              
+              </script>

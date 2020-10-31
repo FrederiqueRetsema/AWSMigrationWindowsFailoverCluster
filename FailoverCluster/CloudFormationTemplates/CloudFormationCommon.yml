@@ -1,0 +1,282 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation template for common objects (failover cluster) 
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "S3"
+        Parameters: 
+          - S3BucketName
+Parameters:
+  S3BucketName:
+    Description: 'Bucketname with zip files in the same region as where you are deploying this template'
+    Type: 'String'
+
+Resources:
+
+  # CloudWatch log groups and log streams, incl. subscription filter
+
+  CloudWatchLogGroupCloudWatchAgent:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: "amazon-cloudwatch-agent.log"
+      RetentionInDays: 30
+
+  CloudWatchLogGroupInstall:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: "install_log.txt"
+      RetentionInDays: 30
+  CloudWatchLogSubscriptionFilter:
+    DependsOn: CloudWatchLogGroupInstall
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !GetAtt CreateOrDeletePowershellEventFunction.Arn
+      FilterPattern: "?CHECK ?START"
+      LogGroupName: !Ref CloudWatchLogGroupInstall
+
+  CloudWatchLogGroupCluster:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: "cluster_log.txt"
+      RetentionInDays: 30
+  CloudWatchLogStreamCluster:
+    DependsOn: CloudWatchLogGroupCluster
+    Type: AWS::Logs::LogStream
+    Properties: 
+      LogGroupName: "cluster_log.txt"
+      LogStreamName: "MyClusterIIS"
+
+  # Lambda functions
+
+  ParameterStartPowershellEventFunctionArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /check/startpowershelleventfunctionarn
+      Type: String
+      Value: !GetAtt StartPowershellEventFunction.Arn
+
+  LambdaPutSecureParameterExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+              - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+  LambdaPutSecureParameterExecutionRolePolicies:
+    DependsOn: LambdaPutSecureParameterExecutionRole
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "CloudWatchAndSSMPutParameter"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:PutLogEvents"
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "ssm:PutParameter"
+              - "ssm:DeleteParameter"
+            Resource: "*"
+          - 
+            Effect: "Allow"
+            Action: 
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey  
+            Resource: "*"
+      Roles:
+        -
+          Ref: "LambdaPutSecureParameterExecutionRole"       
+  PutSecureParameterFunction:
+    DependsOn: 
+    - LambdaPutSecureParameterExecutionRole
+    - LambdaPutSecureParameterExecutionRolePolicies
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: PutSecureParameter.handler
+      Role: !GetAtt LambdaPutSecureParameterExecutionRole.Arn
+      Timeout: 60
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: "PutSecureParameter.zip"
+      Runtime: python3.8  
+
+  LambdaCloudwatchInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt CreateOrDeletePowershellEventFunction.Arn
+      Principal: "logs.amazonaws.com"
+      Action: "lambda:InvokeFunction"
+  CreateOrDeletePowershellEventExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+              - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+  CreateOrDeletePowershellEventExecutionPolicies:
+    DependsOn: CreateOrDeletePowershellEventExecutionRole
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "CloudWatchSSMAndEvents"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:PutLogEvents"
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "ssm:GetParameter"
+              - "events:PutRule"
+              - "events:PutTargets"
+              - "events:DeleteRule"
+              - "events:RemoveTargets"
+            Resource: "*"
+      Roles:
+        -
+          Ref: "CreateOrDeletePowershellEventExecutionRole"
+  CreateOrDeletePowershellEventFunction:
+    DependsOn: 
+    - CreateOrDeletePowershellEventExecutionRole
+    - CreateOrDeletePowershellEventExecutionPolicies
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: CreateOrDeletePowershellEvent.handler
+      Role: !GetAtt CreateOrDeletePowershellEventExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: "CreateOrDeletePowershellEvent.zip"
+      Runtime: python3.8
+      Timeout: 600
+
+  StartPowershellEventInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt StartPowershellEventFunction.Arn
+      Principal: "events.amazonaws.com"
+      Action: "lambda:InvokeFunction"
+  StartPowershellEventExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+              - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+  StartPowershellEventExecutionPolicies:
+    DependsOn: StartPowershellEventExecutionRole
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "CloudWatchSSMAndEvents"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:PutLogEvents"
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "ec2:DescribeInstances"
+              - "ssm:GetParameter"
+              - "ssm:SendCommand"
+              - "events:DeleteRule"
+              - "events:RemoveTargets"
+            Resource: "*"
+      Roles:
+        -
+          Ref: "StartPowershellEventExecutionRole"
+  StartPowershellEventFunction:
+    DependsOn: 
+    - StartPowershellEventExecutionRole
+    - StartPowershellEventExecutionPolicies
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: StartPowershellEvent.handler
+      Role: !GetAtt StartPowershellEventExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: "StartPowershellEvent.zip"
+      Runtime: python3.8
+      Timeout: 600
+
+  LambdaSendCommandExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+              - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+  LambdaSendCommandExecutionRolePolicies:
+    DependsOn: LambdaSendCommandExecutionRole
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "CloudWatchAndSSMSendCommand"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:PutLogEvents"
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "ssm:SendCommand"
+              - "ssm:GetCommandInvocation"
+            Resource: "*"
+      Roles:
+        -
+          Ref: "LambdaSendCommandExecutionRole"       
+  SendCommandFunction:
+    DependsOn: 
+    - LambdaSendCommandExecutionRole
+    - LambdaSendCommandExecutionRolePolicies
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: SendCommand.handler
+      Role: !GetAtt LambdaSendCommandExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: "SendCommand.zip"
+      Runtime: python3.8  
+      Timeout: 600
+
+Outputs:
+
+  PutSecureParameterFunctionARN:
+    Description: "ARN of Lambda function PutSecureParameterFunction"
+    Value: !GetAtt PutSecureParameterFunction.Arn
+
+  SendCommandFunctionARN:
+    Description: "ARN of Lambda function SendCommandFunction"
+    Value: !GetAtt SendCommandFunction.Arn

@@ -1,0 +1,216 @@
+# CloudFormationNetwork.yml
+# =========================
+# Is called from the main script CloudFormationASGWithCustomImage.yml
+
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation template for Network components (ASG with Custom Image) 
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      -
+        Label: 
+          default: "Load Balancer parameters"
+        Parameters: 
+          - HealthyThresholdCount 
+          - UnhealthyThresholdCount
+          - HealthCheckTimeoutSeconds
+          - HealthCheckIntervalSeconds
+          - DeregistrationDelaySeconds
+Parameters:
+  HealthyThresholdCount: 
+    Description: "Healthy threshold"
+    Type: Number
+    Default: 5
+  UnhealthyThresholdCount: 
+    Description: "Unhealthy threshold"
+    Type: Number
+    Default: 2
+  HealthCheckTimeoutSeconds: 
+    Description: "Timeout (seconds)"
+    Type: Number
+    Default: 5
+  HealthCheckIntervalSeconds:
+    Description: "Interval (seconds)"
+    Type: Number
+    Default: 30
+  DeregistrationDelaySeconds:
+    Description: "Deregistration delay (seconds)"
+    Type: Number
+    Default: 300
+
+Resources:
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: false
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: ASGNodeWithCustomImageVPC
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  SubnetAZa:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Join ["", [!Ref "AWS::Region", "a"]]
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+  SubnetAZaRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetAZa
+
+  SubnetAZb:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Join ["", [!Ref "AWS::Region", "b"]]
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+  SubnetAZbRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetAZb
+
+  SubnetAZc:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Join ["", [!Ref "AWS::Region", "c"]]
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+  SubnetAZcRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetAZc
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: RouteTable
+      VpcId: !Ref VPC
+  Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: ASGSecurityGroup
+      GroupDescription: Securitygroup for the ASG node of this demo
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          ToPort: 80
+          FromPort: 80
+          Description: HTTP
+          IpProtocol: TCP
+        - CidrIp: 0.0.0.0/0
+          ToPort: 3389
+          FromPort: 3389
+          Description: RDP
+          IpProtocol: TCP
+        - CidrIp: 10.0.0.0/8
+          ToPort: -1
+          FromPort: -1
+          IpProtocol: -1
+
+  # Load balancer
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: LoadBalancerSecurityGroup
+      GroupDescription: Securitygroup for the load balancer
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          ToPort: 80
+          FromPort: 80
+          Description: HTTP
+          IpProtocol: TCP
+
+  ASGNodeLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties: 
+      Name: ASGNodeLoadBalancer
+      Scheme: internet-facing
+      SecurityGroups: 
+        - !Ref LoadBalancerSecurityGroup
+      Subnets: 
+        - !Ref SubnetAZa
+        - !Ref SubnetAZb
+        - !Ref SubnetAZc
+      Type: application
+  ASGNodeLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties: 
+      DefaultActions: 
+        - Type: forward
+          TargetGroupArn: !Ref ASGNodeLoadBalancerTargetGroup          
+      LoadBalancerArn: !Ref ASGNodeLoadBalancer 
+      Port: 80
+      Protocol: HTTP
+  ASGNodeLoadBalancerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties: 
+      HealthCheckIntervalSeconds: !Ref HealthCheckIntervalSeconds
+      HealthCheckPath: "/"
+      HealthCheckPort: '80'
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: !Ref HealthCheckTimeoutSeconds
+      HealthyThresholdCount: !Ref HealthyThresholdCount
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: !Ref DeregistrationDelaySeconds
+      Matcher:
+        HttpCode: '200'
+      Name: ASGNodeLoadBalancerTargetGroup
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: !Ref UnhealthyThresholdCount
+      VpcId: !Ref VPC
+
+Outputs:
+
+  SubnetAZa:
+    Description: "Id of Subnet AZa"
+    Value: !Ref SubnetAZa
+  SubnetAZb:
+    Description: "Id of Subnet AZb"
+    Value: !Ref SubnetAZb
+  SubnetAZc:
+    Description: "Id of Subnet AZc"
+    Value: !Ref SubnetAZc
+
+  SecurityGroup:
+    Description: "GroupId of the security group for instances in this demo"
+    Value: !GetAtt SecurityGroup.GroupId
+
+  TargetGroupArn:
+    Description: "Arn of the target group of the load balancer"
+    Value: !Ref ASGNodeLoadBalancerTargetGroup
+
+  ASGNodeLoadBalancerDNSAddress:
+    Description: "DNS Address of the load balancer"
+    Value: !GetAtt ASGNodeLoadBalancer.DNSName

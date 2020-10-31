@@ -1,0 +1,333 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Windows DC and Failover cluster
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "EC2"
+        Parameters: 
+          - InstanceType
+          - KeyName
+          - AMIID
+          - ClusterNodeName
+          - IPAddressPublic
+          - IPAddressPrivate
+          - SecurityGroup
+      - 
+        Label: 
+          default: "ARNs"
+        Parameters: 
+          - SendCommandFunctionARN
+Parameters:
+  InstanceType:
+     Description: 'Amazon EC2 instance type'
+     Type: 'String'
+     Default: 't3.medium' 
+     AllowedValues: 
+       - 't3.medium'
+       - 'm5a.xlarge'
+  KeyName:
+     Description: 'Name of an EC2 KeyPair'
+     Type: 'AWS::EC2::KeyPair::KeyName'
+  AMIID:
+    Description: 'AMI to use'
+    Type: 'String'
+  ClusterNodeName:
+    Description: 'Nodename of this clusternode'
+    Type: 'String'
+    Default: 'ClusterNode1'
+  IPAddressPublic:
+    Description: 'Cluster IP Address of this clusternode in the public network'
+    Type: 'String'
+    Default: '10.0.0.11'
+  IPAddressPrivate:
+    Description: 'Cluster IP Address of this clusternode in the private network'
+    Type: 'String'
+    Default: '10.0.1.11'
+  SecurityGroup:
+     Description: 'SecurityGroup for this ClusterNode'
+     Type: 'String'
+  PublicSubnet:
+     Description: 'PublicSubnet for this ClusterNode'
+     Type: 'String'
+  PrivateSubnet:
+     Description: 'PrivateSubnet for this ClusterNode'
+     Type: 'String'
+  SendCommandFunctionARN:
+     Description: 'ARN of the Lambda function SendCommandFunction'
+     Type: 'String'
+Mappings:
+  AWSManagedRoles:
+    SSM:
+      AmazonSSMManagedInstanceCore: "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+  ClusterNodeNames:
+    ClusterNode1:
+      LowerCase: "clusternode1"
+      UpperCase: "CLUSTERNODE1"
+    ClusterNode2:
+      LowerCase: "clusternode2"
+      UpperCase: "CLUSTERNODE2"
+    ClusterNode3:
+      LowerCase: "clusternode3"
+      UpperCase: "CLUSTERNODE3"
+
+Resources:
+
+  ParameterIPAddressClusterNodepublic:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Join ["", ["/", !FindInMap ["ClusterNodeNames", !Ref ClusterNodeName, "LowerCase"], "/ipaddresspublic"]]
+      Type: String
+      Value: !Ref IPAddressPublic
+  ParameterIPAddressClusterNodeprivate:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Join ["", ["/", !FindInMap ["ClusterNodeNames", !Ref ClusterNodeName, "LowerCase"], "/ipaddressprivate"]]
+      Type: String
+      Value: !Ref IPAddressPrivate
+
+  CloudWatchLogStreamCloudWatchAgent:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: "amazon-cloudwatch-agent.log"
+      LogStreamName: !Sub "${ClusterNodeName}"
+  CloudWatchLogStreamInstall:
+    Type: AWS::Logs::LogStream
+    Properties: 
+      LogGroupName: "install_log.txt"
+      LogStreamName: !Sub "${ClusterNodeName}"
+
+  ClusterEC2IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !FindInMap [ "AWSManagedRoles", "SSM", "AmazonSSMManagedInstanceCore"]
+  ClusterEC2IAMRolePolicies:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "ClusterEC2IAMRolePolicies"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: "ssm:GetParameter"
+            Resource: 
+              - "arn:aws:ssm:*:*:parameter/dc/ipaddress"
+              - !Join ["", ["arn:aws:ssm:*:*:parameter/", !Ref ClusterNodeName, "/ipaddresspublic"]]
+              - !Join ["", ["arn:aws:ssm:*:*:parameter/", !Ref ClusterNodeName, "/ipaddressprivate"]]
+          -
+            Effect: "Allow"
+            Action: 
+              - "ec2:DescribeInstances"
+              - "ec2:AssignPrivateIpAddresses"
+              - "ec2:UnassignPrivateIpAddresses"
+              - "ec2:DescribeNetworkInterfaces"
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "logs:PutLogEvents"
+            Resource: 
+              - "*"
+      Roles:
+        -
+          Ref: "ClusterEC2IAMRole"
+  ClusterEC2IAMInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: "/"
+      Roles:
+        -
+          Ref: "ClusterEC2IAMRole"
+
+  ClusterNode:
+    DependsOn: CloudWatchLogStreamInstall
+    Type: AWS::EC2::Instance
+    Metadata:
+      'AWS::CloudFormation::Init':
+        config:
+          files:
+            'c:\cfn\cfn-hup.conf':
+              content: !Sub |
+                [main]
+                stack=${AWS::StackName}
+                region=${AWS::Region}
+                interval=2
+            'c:\cfn\hooks.d\cfn-auto-reloader.conf':
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.ClusterNode.Metadata.AWS::CloudFormation::Init
+                action=cfn-init.exe -v -s ${AWS::StackName} -r ClusterNode --region ${AWS::Region}
+            'c:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json':
+              content: !Sub |
+                {
+                  "agent": {
+                    "metrics_collection_interval": 60,
+                    "logfile": "c:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\Logs\\amazon-cloudwatch-agent.log"
+                  },
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "c:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\Logs\\amazon-cloudwatch-agent.log",
+                            "log_group_name": "amazon-cloudwatch-agent.log",
+                            "log_stream_name": "${ClusterNodeName}",
+                            "timezone": "UTC"
+                          },
+                          {
+                            "file_path": "C:\\Install\\install_log.txt",
+                            "log_group_name": "install_log.txt",
+                            "log_stream_name": "${ClusterNodeName}",
+                            "encoding": "utf-16",
+                            "timezone": "UTC"
+                          },
+                          {
+                            "file_path": "C:\\ClusterScripts\\cluster_log.txt",
+                            "log_group_name": "cluster_log.txt",
+                            "log_stream_name": "MyClusterIIS",
+                            "encoding": "utf-16",
+                            "timezone": "UTC"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+          commands:
+            01-CreateDirectories:
+              command: >
+                mkdir C:\Install &
+                mkdir C:\Install\Temp &
+                mkdir C:\ClusterScripts
+            02-InstallCLIAndCloudWatchAgent:
+              command: >
+                curl https://awscli.amazonaws.com/AWSCLIV2.msi -o AWSCLIv2.MSI & 
+                AWSCLIv2.MSI /quiet &
+                curl https://s3.amazonaws.com/amazoncloudwatch-agent/windows/amd64/latest/amazon-cloudwatch-agent.msi -o amazon-cloudwatch-agent.msi &
+                amazon-cloudwatch-agent.msi /quiet &
+                powershell -Command "& 'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent-ctl.ps1' -a fetch-config -m ec2 -s -c file:'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json'"
+            03-ComputerName: 
+              command: !Sub |
+                echo $COMPUTERNAME = "${ClusterNodeName}" > C:\Install\computername.ps1 
+            04-Downloads:
+              command: >
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/uidspwds.ps1 -o C:\Install\uidspwds.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/part1.ps1 -o C:\Install\part1.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/part2.ps1 -o C:\Install\part2.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/part3.ps1 -o C:\Install\part3.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/part4.ps1 -o C:\Install\part4.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/part5.ps1 -o C:\Install\part5.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/ChangeUsernameOfAWSService.ps1 -o C:\Install\ChangeUsernameOfAWSService.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Configure-NetworkCards.ps1 -o C:\Install\Configure-NetworkCards.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/CreateWebpage.ps1 -o C:\Install\CreateWebpage.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Configure-Cluster.ps1 -o C:\Install\Configure-Cluster.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-Terminate.ps1 -o c:\ClusterScripts\Cluster-Terminate.ps1 &                
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-Close.ps1 -o c:\ClusterScripts\Cluster-Close.ps1 &                
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-Open.ps1 -o c:\ClusterScripts\Cluster-Open.ps1 &                
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-IsAlive.ps1 -o c:\ClusterScripts\Cluster-IsAlive.ps1 &                
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-LooksAlive.ps1 -o c:\ClusterScripts\Cluster-LooksAlive.ps1 &                
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-Offline.ps1 -o c:\ClusterScripts\Cluster-Offline.ps1 &                
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/Cluster-Online.ps1 -o c:\ClusterScripts\Cluster-Online.ps1 &                
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/Windows+Failover+Cluster/Clusters/myclusteriis-entrypoints.vbs -o c:\ClusterScripts\myclusteriis-entrypoints.vbs
+            05-StartPowershell:
+              command: Powershell.exe -File c:\install\part1.ps1
+          services:
+            windows:
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files: 
+                  - 'c:\cfn\cfn-hup.conf'
+                  - 'c:\cfn\hooks.d\cfn-auto-reloader.conf'
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT59M
+    Properties:
+        ImageId: !Ref AMIID
+        KeyName: !Ref KeyName
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile: !Ref ClusterEC2IAMInstanceProfile
+        Tags:
+          - Key: Name
+            Value: !Ref ClusterNodeName
+          - Key: NameInUppercase
+            Value: !FindInMap [ "ClusterNodeNames", !Ref ClusterNodeName, "UpperCase"]
+        BlockDeviceMappings:
+        -
+          DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+        NetworkInterfaces:
+        - DeleteOnTermination: true
+          Description: PublicNetwork
+          DeviceIndex: 0
+          GroupSet: 
+          - !Ref SecurityGroup
+          PrivateIpAddress: !Ref IPAddressPublic
+          SubnetId: !Ref PublicSubnet
+        UserData: 
+          "Fn::Base64": 
+            !Sub |
+              <script>
+
+              cfn-init.exe -v -s ${AWS::StackName} -r ClusterNode --region ${AWS::Region}
+
+              powershell -Command "Write-Output '$Region = \"${AWS::Region}\"' > C:\ClusterScripts\NetworkSettings.ps1"
+              
+              echo Write-Log -LogText "TRACE Signal end of configuration (for now)" >> C:\Install\part5.ps1
+              echo cfn-signal.exe -e %ERRORLEVEL% --stack=${AWS::StackName} --resource ClusterNode --region ${AWS::Region} >> C:\\Install\part5.ps1
+              echo Write-Log -LogText "END part5.ps1 (from CloudFormationClusterNode.yml)" >> C:\Install\part5.ps1
+
+              shutdown /r
+              
+              </script>
+  EIPPublicAddress:
+    DependsOn: ClusterNode
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref ClusterNode
+  NetworkInterfacePrivateNetwork:
+    DependsOn: ClusterNode
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Description: PrivateNetwork
+      GroupSet: 
+      - !Ref SecurityGroup    
+      PrivateIpAddress: !Ref IPAddressPrivate
+      SubnetId: !Ref PrivateSubnet
+  NetworkInterfaceAttachmentPrivateNetwork:
+    DependsOn: NetworkInterfacePrivateNetwork  
+    Type: AWS::EC2::NetworkInterfaceAttachment 
+    Properties:
+      DeleteOnTermination: true
+      DeviceIndex: 1
+      InstanceId: !Ref ClusterNode
+      NetworkInterfaceId: !Ref NetworkInterfacePrivateNetwork
+  ExecuteNetworkConfig:
+    DependsOn: 
+    - NetworkInterfaceAttachmentPrivateNetwork
+    - ParameterIPAddressClusterNodepublic
+    - ParameterIPAddressClusterNodeprivate
+    Type: Custom::ExecuteNetworkConfig
+    Properties:
+      ServiceToken: !Ref SendCommandFunctionARN
+      InstanceId: !Ref ClusterNode
+      Commands: 'cd c:\Install;. C:\Install\Configure-NetworkCards.ps1'
+      Comment: 'Configure networkcards clusternode'
+Outputs:
+  InstanceID:
+    Description: "InstanceID of the ClusterNode that is created"
+    Value: !Ref ClusterNode

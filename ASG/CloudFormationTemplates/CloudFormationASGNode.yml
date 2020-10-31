@@ -1,0 +1,260 @@
+# CloudFormationASGNode.yml
+# =========================
+# Is called from the main script CloudFormationASG.yml
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ASG with 1 Windows node
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      -
+        Label: 
+          default: "EC2"
+        Parameters: 
+          - InstanceType
+          - KeyName
+          - AMI
+          - SecurityGroup
+          - SubnetAZa
+          - SubnetAZb
+          - SubnetAZc
+      -
+        Label:
+          default: "Arns"
+        Parameters:
+          - TargetGroupArn
+          - UpdateASGConfigurationFunctionArn
+Parameters:
+  InstanceType:
+     Description: 'Amazon EC2 instance type'
+     Type: 'String'
+     Default: 't3.medium' 
+     AllowedValues: 
+       - 't3.medium'
+       - 'm5a.xlarge'
+  KeyName:
+     Description: 'Name of an existing EC2 KeyPair'
+     Type: 'String'
+  AMI:
+    Description: 'AMI to use'
+    Type: 'String'
+  SecurityGroup:
+    Description: 'Security Group to use'
+    Type: 'String'
+  SubnetAZa:
+     Description: 'Subnet in AZa'
+     Type: 'String'
+  SubnetAZb:
+     Description: 'Subnet in AZb'
+     Type: 'String'
+  SubnetAZc:
+     Description: 'Subnet in AZc'
+     Type: 'String'
+  TargetGroupArn:
+     Description: 'Arn for the Target Group of the Load Balancer'
+     Type: 'String'
+  UpdateASGConfigurationFunctionArn:
+     Description: 'Arn for the UpdateASGConfiguration Lambda function'
+     Type: 'String'
+  
+Mappings:
+  AWSManagedRoles:
+    SSM:
+      AmazonSSMManagedInstanceCore: "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+
+Resources: 
+
+  ASGEC2IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !FindInMap [ "AWSManagedRoles", "SSM", "AmazonSSMManagedInstanceCore"]
+  ASGEC2IAMRolePolicies:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "ASGEC2IAMRolePolicies"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: "ssm:GetParameter"
+            Resource: 
+              - "arn:aws:ssm:*:*:parameter/demo/failover/password"
+          -
+            Effect: "Allow"
+            Action: 
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "logs:PutLogEvents"
+              - "autoscaling:CompleteLifecycleAction"
+            Resource: 
+              - "*"
+      Roles:
+        -
+          Ref: "ASGEC2IAMRole"
+  ASGEC2IAMInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: "/"
+      Roles:
+        -
+          Ref: "ASGEC2IAMRole"
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Metadata:
+      'AWS::CloudFormation::Init':
+        config:
+          files:
+            'c:\cfn\cfn-hup.conf':
+              content: !Sub |
+                [main]
+                stack=${AWS::StackName}
+                region=${AWS::Region}
+                interval=2
+            'c:\cfn\hooks.d\cfn-auto-reloader.conf':
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.LaunchTemplate.Metadata.AWS::CloudFormation::Init
+                action=cfn-init.exe -v -s ${AWS::StackName} -r LaunchTemplate --region ${AWS::Region}
+            'c:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json':
+              content: !Sub |
+                {
+                  "agent": {
+                    "metrics_collection_interval": 60,
+                    "logfile": "c:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\Logs\\amazon-cloudwatch-agent.log"
+                  },
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "c:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\Logs\\amazon-cloudwatch-agent.log",
+                            "log_group_name": "amazon-cloudwatch-agent.log",
+                            "log_stream_name": "ASGNode",
+                            "timezone": "UTC"
+                          },
+                          {
+                            "file_path": "C:\\Install\\install_log.txt",
+                            "log_group_name": "install_log.txt",
+                            "log_stream_name": "ASGNode",
+                            "encoding": "utf-16",
+                            "timezone": "UTC"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+          commands:
+            01-AllCommands:
+              command: >
+                mkdir C:\Install &
+                curl https://awscli.amazonaws.com/AWSCLIV2.msi -o AWSCLIv2.MSI & 
+                AWSCLIv2.MSI /quiet &
+                curl https://s3.amazonaws.com/amazoncloudwatch-agent/windows/amd64/latest/amazon-cloudwatch-agent.msi -o amazon-cloudwatch-agent.msi &
+                amazon-cloudwatch-agent.msi /quiet &
+                powershell -Command "& 'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent-ctl.ps1' -a fetch-config -m ec2 -s -c file:'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json'" &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/ASG/uidspwds.ps1 -o C:\Install\uidspwds.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/ASG/part1.ps1 -o C:\Install\part1.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/ASG/part2.ps1 -o C:\Install\part2.ps1 &
+                curl https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/NieuweBlog/ASG/CreateWebpage.ps1 -o C:\Install\CreateWebpage.ps1 &
+                Powershell.exe -File c:\install\part1.ps1
+          services:
+            windows:
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files: 
+                  - 'c:\cfn\cfn-hup.conf'
+                  - 'c:\cfn\hooks.d\cfn-auto-reloader.conf'
+    Properties:
+      LaunchTemplateName: ASGNodeLaunchTemplate
+      LaunchTemplateData:
+        ImageId: !Ref AMI
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        IamInstanceProfile: 
+          Name: !Ref ASGEC2IAMInstanceProfile
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: ASGNode
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: ASGNode
+        BlockDeviceMappings:
+        -
+          DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+        SecurityGroupIds:
+          - !Ref SecurityGroup
+        UserData: 
+          "Fn::Base64": 
+            !Sub |
+              <script>
+
+              cfn-init.exe -v -s ${AWS::StackName} -r LaunchTemplate --region ${AWS::Region}
+
+              echo Write-Log -ComputerName $COMPUTERNAME -LogText "TRACE Signal end of configuration" >> C:\Install\part2.ps1
+              echo cfn-signal.exe -e %ERRORLEVEL% --stack=${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region} >> C:\\Install\part2.ps1
+              echo $INSTANCEID = (cmd /C "curl http://169.254.169.254/latest/meta-data/instance-id") >> C:\Install\part2.ps1
+              echo aws autoscaling complete-lifecycle-action --lifecycle-action-result CONTINUE --lifecycle-hook-name ASGNodeHook --auto-scaling-group-name ASG --instance-id $INSTANCEID --region ${AWS::Region} >> C:\Install\part2.ps1
+              echo Write-Log -ComputerName $COMPUTERNAME -LogText "END part2.ps1 (from CloudFormationASGNode.yml)" >> C:\Install\part2.ps1
+
+              shutdown /r
+              
+              </script>
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: ASG 
+      VPCZoneIdentifier: 
+        - !Ref SubnetAZa
+        - !Ref SubnetAZb
+        - !Ref SubnetAZc
+      # Mind, that the ASG will be created using the default HealthCheckType EC2 and default HealthGracePeriod, 
+      # this type will be changed AFTER adding the life cycle hook to the ASG to prevent the ELB to stop the 
+      # (first) instance (during CloudFormation enrollment) before it is started completely
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      DesiredCapacity: 1
+      MinSize: 1
+      MaxSize: 1
+      TargetGroupARNs:
+      - !Ref TargetGroupArn
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT30M
+
+  AutoScalingLifeCycleHook:
+    Type: AWS::AutoScaling::LifecycleHook
+    Properties: 
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      HeartbeatTimeout: 900    # seconds = 15 min
+      LifecycleHookName: ASGNodeHook
+      LifecycleTransition: 'autoscaling:EC2_INSTANCE_LAUNCHING'
+
+  ExecuteUpdateASGConfiguration:
+    DependsOn: AutoScalingLifeCycleHook
+    Type: Custom::ExecuteUpdateASGConfiguration
+    Properties:
+      ServiceToken: !Ref UpdateASGConfigurationFunctionArn

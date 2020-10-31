@@ -1,0 +1,202 @@
+# CloudFormationFailover.yml
+# ==========================
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Windows DC and Failover cluster
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      -
+        Label: 
+          default: "EC2"
+        Parameters: 
+          - InstanceType
+          - KeyName
+          - AMI
+          - Password
+          - CheckPassword
+      - 
+        Label: 
+          default: "S3"
+        Parameters: 
+          - S3BucketName
+Parameters:
+  InstanceType:
+     Description: 'Amazon EC2 instance type'
+     Type: 'String'
+     Default: 't3.medium' 
+     AllowedValues: 
+       - 't3.medium'
+       - 'm5a.xlarge'
+  KeyName:
+     Description: 'Name of an existing EC2 KeyPair'
+     Type: 'AWS::EC2::KeyPair::KeyName'
+  AMI:
+    Description: 'AMI to use'
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-windows-latest/Windows_Server-2019-English-Full-Base'
+  Password:
+    Description: 'Password for all userids in this demo application'
+    Type: 'String'
+    NoEcho: true
+  CheckPassword:
+    Description: 'Password for all userids in this demo application'
+    Type: 'String'
+    NoEcho: true    
+  S3BucketName:
+    Description: 'Bucketname with zip files in the same region as where you are deploying this template'
+    Type: 'String'
+    Default: 'fra-euwest1'
+Conditions:
+    PasswordCheckCorrect: 
+      Fn::Equals: [!Ref Password, !Ref CheckPassword]
+Mappings:
+  IPAddress:
+    DC: 
+      Public:  "10.0.0.5"
+    ClusterNode1:
+      Public:  "10.0.0.11"
+      Private: "10.0.1.11"
+    ClusterNode2:
+      Public:  "10.0.0.12"
+      Private: "10.0.1.12"
+    ClusterNode3:
+      Public:  "10.0.0.13"
+      Private: "10.0.1.13"
+    Demo:
+      Public:  "10.0.0.24"
+
+Resources:
+
+  CommonStack:
+    Condition: PasswordCheckCorrect
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/Windows+Failover+Cluster/CloudFormationCommon.yml"
+      TimeoutInMinutes: 5
+      Parameters:
+        S3BucketName: !Ref S3BucketName
+  NetworkStack:
+    Condition: PasswordCheckCorrect
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/Windows+Failover+Cluster/CloudFormationNetwork.yml"
+      TimeoutInMinutes: 5
+
+  ExecutePutSecureParameterFunction:
+    Condition: PasswordCheckCorrect
+    Type: Custom::ExecutePutSecureParameterFunction
+    Properties:
+      ServiceToken: !GetAtt CommonStack.Outputs.PutSecureParameterFunctionARN
+      ParameterName: "/demo/failover/password"
+      ParameterValue: !Ref Password
+      ParameterDescription: "Password for demo application to compare failoverclustering and ASG"
+
+  DCStack:
+    Condition: PasswordCheckCorrect
+    DependsOn: ExecutePutSecureParameterFunction
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/Windows+Failover+Cluster/CloudFormationDC.yml"
+      TimeoutInMinutes: 45
+      Parameters:
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        AMIID: !Ref AMI
+        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroup
+        PublicSubnet: !GetAtt NetworkStack.Outputs.PublicSubnet
+        IPAddress: !FindInMap ["IPAddress", "DC", "Public"]
+
+  ClusterNode1Stack:
+    Condition: PasswordCheckCorrect
+    DependsOn: DCStack
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/Windows+Failover+Cluster/CloudFormationClusterNode.yml"
+      TimeoutInMinutes: 30
+      Parameters:
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        AMIID: !Ref AMI
+        ClusterNodeName: "ClusterNode1"
+        IPAddressPublic: !FindInMap ["IPAddress", "ClusterNode1", "Public"]
+        IPAddressPrivate: !FindInMap ["IPAddress", "ClusterNode1", "Private"]
+        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroup
+        PublicSubnet: !GetAtt NetworkStack.Outputs.PublicSubnet
+        PrivateSubnet: !GetAtt NetworkStack.Outputs.PrivateSubnet
+        SendCommandFunctionARN: !GetAtt CommonStack.Outputs.SendCommandFunctionARN
+  ClusterNode2Stack:
+    Condition: PasswordCheckCorrect
+    DependsOn: DCStack
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/Windows+Failover+Cluster/CloudFormationClusterNode.yml"
+      TimeoutInMinutes: 30
+      Parameters:
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        AMIID: !Ref AMI
+        ClusterNodeName: "ClusterNode2"
+        IPAddressPublic: !FindInMap ["IPAddress", "ClusterNode2", "Public"]
+        IPAddressPrivate: !FindInMap ["IPAddress", "ClusterNode2", "Private"]
+        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroup
+        PublicSubnet: !GetAtt NetworkStack.Outputs.PublicSubnet
+        PrivateSubnet: !GetAtt NetworkStack.Outputs.PrivateSubnet
+        SendCommandFunctionARN: !GetAtt CommonStack.Outputs.SendCommandFunctionARN
+  ClusterNode3Stack:
+    Condition: PasswordCheckCorrect
+    DependsOn: DCStack
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/Windows+Failover+Cluster/CloudFormationClusterNode.yml"
+      TimeoutInMinutes: 30
+      Parameters:
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        AMIID: !Ref AMI
+        ClusterNodeName: "ClusterNode3"
+        IPAddressPublic: !FindInMap ["IPAddress", "ClusterNode3", "Public"]
+        IPAddressPrivate: !FindInMap ["IPAddress", "ClusterNode3", "Private"]
+        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroup
+        PublicSubnet: !GetAtt NetworkStack.Outputs.PublicSubnet
+        PrivateSubnet: !GetAtt NetworkStack.Outputs.PrivateSubnet
+        SendCommandFunctionARN: !GetAtt CommonStack.Outputs.SendCommandFunctionARN
+
+  DemoStack:
+    Condition: PasswordCheckCorrect
+    DependsOn: DCStack
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/Windows+Failover+Cluster/CloudFormationDemo.yml"
+      TimeoutInMinutes: 30
+      Parameters:
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        AMIID: !Ref AMI
+        IPAddress: !FindInMap ["IPAddress", "Demo", "Public"]
+        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroup
+        PublicSubnet: !GetAtt NetworkStack.Outputs.PublicSubnet
+
+  ExecuteClusterConfig:
+    Condition: PasswordCheckCorrect
+    DependsOn: 
+    - ClusterNode1Stack
+    - ClusterNode2Stack
+    - ClusterNode3Stack
+    Type: Custom::ExecuteClusterConfig
+    Properties:
+      ServiceToken: !GetAtt CommonStack.Outputs.SendCommandFunctionARN
+      InstanceId: !GetAtt ClusterNode1Stack.Outputs.InstanceID
+      Commands: 'cd c:\Install;. C:\Install\Configure-Cluster.ps1'
+      Comment: 'Configure cluster'
+
+  ExecuteAddDnsEntry:
+    Condition: PasswordCheckCorrect
+    DependsOn: ExecuteClusterConfig
+    Type: Custom::ExecuteAddDnsEntry
+    Properties:
+      ServiceToken: !GetAtt CommonStack.Outputs.SendCommandFunctionARN
+      InstanceId: !GetAtt DCStack.Outputs.InstanceID
+      Commands: 'Add-DnsServerResourceRecordA -Name MyClusterIIS -IPv4Address 10.0.0.51 -ZoneName ONP-1234.ORG'
+      Comment: 'Add MyClusterIIS record to DNS'
