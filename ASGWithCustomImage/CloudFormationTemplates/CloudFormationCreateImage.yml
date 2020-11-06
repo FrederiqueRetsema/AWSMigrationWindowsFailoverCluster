@@ -218,7 +218,7 @@ Resources:
             echo Write-Log -LogText "TRACE Signal end of configuration (for now)" >> C:\Install\part2.ps1
             echo cfn-signal.exe -e 0 --stack=${AWS::StackName} --resource EC2BaseInstance --region ${AWS::Region} >> C:\\Install\part2.ps1
             echo Write-Log -LogText "TRACE Start sysprep (will stop this instance)" >> C:\Install\part2.ps1
-            echo . "C:\Program Files\Amazon\EC2Launch\EC2Launch" sysprep >> C:\Install\part2.ps1 
+            echo . "C:\Program Files\Amazon\EC2Launch\EC2Launch" sysprep --shutdown >> C:\Install\part2.ps1 
             echo Write-Log -ComputerName $COMPUTERNAME -LogText "END part2.ps1 (from CloudFormationASGNode.yml)" >> C:\Install\part2.ps1
 
             echo $StackName  = Get-SSMParameter -Parameter "/asgnode/stackname" >> C:\Install\SignalASG.ps1
