@@ -15,12 +15,13 @@ Metadata:
           - SubnetAZa
           - SubnetAZb
           - SubnetAZc
-          - VPCID
       -
         Label:
           default: "Arns"
         Parameters:
           - TargetGroupArn
+          - PutParameterFunctionArn
+          - UpdateASGConfigurationFunctionArn
 Parameters:
   InstanceType:
      Description: 'Amazon EC2 instance type'

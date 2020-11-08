@@ -135,6 +135,13 @@ Resources:
           FromPort: -1
           IpProtocol: -1
 
+  SecurityGroupECS:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: ASGSecurityGroupECS
+      GroupDescription: Securitygroup for the ECS container (no open ports)
+      VpcId: !Ref VPC
+
   # Load balancer
 
   LoadBalancerSecurityGroup:
@@ -203,9 +210,12 @@ Outputs:
     Description: "Id of Subnet AZc"
     Value: !Ref SubnetAZc
 
-  SecurityGroup:
+  SecurityGroupInstances:
     Description: "GroupId of the security group for instances in this demo"
     Value: !GetAtt SecurityGroup.GroupId
+  SecurityGroupECS:
+    Description: "GroupId of the security group for ECS (no open ports)"
+    Value: !GetAtt SecurityGroupECS.GroupId
 
   TargetGroupArn:
     Description: "Arn of the target group of the load balancer"

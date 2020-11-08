@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create ECS Fargate cluster and Task with container that copies ELB Health Status to the ASG Health Status
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      -
+        Label: 
+          default: "Network"
+        Parameters: 
+          - SecurityGroup
+          - SubnetAZa
+          - SubnetAZb
+          - SubnetAZc
+      -
+        Label: 
+          default: "Container"
+        Parameters: 
+          - ContainerRepoName
+          - SleepInSeconds
+          - LoggingLevelInContainer
+Parameters:
+  SecurityGroup:
+    Description: 'SecurityGroup to use'
+    Type: 'String'
+  SubnetAZa:
+     Description: 'Subnet for this ASGNode in AZa'
+     Type: 'String'
+  SubnetAZb:
+     Description: 'Subnet for this ASGNode in AZb'
+     Type: 'String'
+  SubnetAZc:
+     Description: 'Subnet for this ASGNode in AZc'
+     Type: 'String'
+  ContainerRepoName:
+     Description: 'Name of the container in f.e. Docker hub'
+     Type: 'String'
+     Default: 'frederiquer/elb_health_status_to_asg:latest'
+  SleepInSeconds:
+     Description: 'Time between two checks of the elb health status'
+     Type: 'Number'
+     Default: "5"
+  LoggingLevelInContainer:
+     Description: 'Logging level in the container. Default: INFO. Also allowed: DEBUG or WARNING.'
+     Type: 'String'
+     Default: "DEBUG"
+     AllowedValues: 
+       - 'DEBUG'
+       - 'INFO'
+       - 'WARNING'
+Mappings:
+  AWSManagedPolicies:
+    ECS:
+      AmazonECSTaskExecutionRolePolicy: "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+  
+Resources: 
+
+  CloudWatchLogGroupECS:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: "/ecs/ElbHealthCheckStatusToAsg"
+      RetentionInDays: 30
+
+  ECSTaskExecutionIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - "ecs-tasks.amazonaws.com"
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns: 
+        - !FindInMap ["AWSManagedPolicies","ECS","AmazonECSTaskExecutionRolePolicy"]
+
+  ECSIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - "ecs-tasks.amazonaws.com"
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+  ECSIAMRolePolicies:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "ECSIAMRolePolicies"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: 
+              - "elasticloadbalancing:DescribeTargetGroups"
+              - "elasticloadbalancing:DescribeTargetHealth"
+              - "ec2:DescribeInstances"
+              - "autoscaling:DescribeAutoScalingGroups"
+              - "autoscaling:SetInstanceHealth"
+              - "logs:CreateLogStream"
+              - "logs:CreateLogGroup"
+              - "logs:PutLogEvents"
+            Resource: 
+              - "*"
+      Roles:
+        -
+          Ref: "ECSIAMRole"
+
+  ELBHealthStatusToASGCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: ELBHealthStatusToASGCluster
+      CapacityProviders:
+        - FARGATE
+  ELBHealthStatusToASGTaskDefinition:
+    DependsOn: CloudWatchLogGroupECS
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !Ref ECSTaskExecutionIAMRole
+      TaskRoleArn: !Ref ECSIAMRole
+      Family: "ELBHealthStatusToASGTaskDefinition"
+      ContainerDefinitions:
+        - Environment: 
+          - Name: "SLEEP_IN_SECONDS"
+            Value: !Ref SleepInSeconds
+          - Name: "LOGGING_LEVEL"
+            Value: !Ref LoggingLevelInContainer
+          Essential: True
+          Name: ELBHealthStatusToASGContainer
+          Image: !Ref ContainerRepoName
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: /ecs/ElbHealthCheckStatusToAsg
+              awslogs-region: !Sub "${AWS::Region}"
+              awslogs-stream-prefix: "ecs"
+  ELBHealthStatusToASGService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ELBHealthStatusToASGCluster
+      DesiredCount: 1
+      LaunchType: "FARGATE"
+      PropagateTags: TASK_DEFINITION
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups: 
+            - !Ref SecurityGroup
+          Subnets: 
+            - !Ref SubnetAZa
+            - !Ref SubnetAZb
+            - !Ref SubnetAZc
+      TaskDefinition: !Ref ELBHealthStatusToASGTaskDefinition

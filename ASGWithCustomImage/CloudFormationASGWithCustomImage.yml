@@ -27,6 +27,13 @@ Metadata:
           default: "S3"
         Parameters: 
           - S3BucketName
+      - Label:
+           default: "Container"
+        Parameters:
+          - UseContainer
+          - ContainerRepoName
+          - SleepInSeconds
+          - LoggingLevelInContainer
 Parameters:
   InstanceType:
      Description: 'Amazon EC2 instance type'
@@ -74,9 +81,38 @@ Parameters:
     Description: 'Bucketname with zip files in the same region as where you are deploying this template'
     Type: 'String'
     Default: 'fra-euwest1'
+  UseContainer:
+     Description: 'Use the container to speed up the use of the ELB Health Status in the Auto Scaling Group'
+     Type: 'String'
+     Default: 'False'
+     AllowedValues: 
+       - 'True'
+       - 'False'
+  ContainerRepoName:
+     Description: 'Name of the container in f.e. Docker hub'
+     Type: 'String'
+     Default: 'frederiquer/elb_health_status_to_asg:latest'
+  SleepInSeconds:
+     Description: 'Time between two checks of the elb health status'
+     Type: 'Number'
+     Default: "5"
+  LoggingLevelInContainer:
+     Description: 'Logging level in the container. Default: INFO. Also allowed: DEBUG or WARNING.'
+     Type: 'String'
+     Default: "INFO"
+     AllowedValues: 
+       - 'DEBUG'
+       - 'INFO'
+       - 'WARNING'
 Conditions:
     PasswordCheckCorrect: 
       Fn::Equals: [!Ref Password, !Ref CheckPassword]
+    UseContainerTrue:
+      Fn::Equals: [!Ref UseContainer, 'True']
+    UseContainerTrueAndPasswordCheckCorrect:
+      Fn::And:
+        - Condition: PasswordCheckCorrect
+        - Condition: UseContainerTrue
 
 Resources:
 
@@ -124,7 +160,7 @@ Resources:
         InstanceType: !Ref InstanceType
         KeyName: !Ref KeyName
         AMI: !Ref AMI
-        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroup
+        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroupInstances
         SubnetAZa: !GetAtt NetworkStack.Outputs.SubnetAZa
         CreateImageFunctionArn: !GetAtt CommonStack.Outputs.CreateImageFunctionArn
         PutParameterFunctionArn: !GetAtt CommonStack.Outputs.PutParameterFunctionArn
@@ -144,13 +180,30 @@ Resources:
         InstanceType: !Ref InstanceType
         KeyName: !Ref KeyName
         AMIID: !GetAtt CreateImageStack.Outputs.ImageId
-        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroup
+        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroupInstances
         SubnetAZa: !GetAtt NetworkStack.Outputs.SubnetAZa
         SubnetAZb: !GetAtt NetworkStack.Outputs.SubnetAZb
         SubnetAZc: !GetAtt NetworkStack.Outputs.SubnetAZc
         TargetGroupArn: !GetAtt NetworkStack.Outputs.TargetGroupArn
         PutParameterFunctionArn: !GetAtt CommonStack.Outputs.PutParameterFunctionArn
         UpdateASGConfigurationFunctionArn: !GetAtt CommonStack.Outputs.UpdateASGConfigurationFunctionArn
+
+  ELBHealthStatusToASGStack:
+    Condition: UseContainerTrueAndPasswordCheckCorrect
+    DependsOn: 
+      - NetworkStack
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://frpublic.s3-eu-west-1.amazonaws.com/AMIS/install+scripts/CF+Templates/Blog+Windows+Failover+Cluster/ASGWithCustomImage/CloudFormationElbHealthStatusToAsg.yml"
+      TimeoutInMinutes: 30
+      Parameters:
+        SecurityGroup: !GetAtt NetworkStack.Outputs.SecurityGroupECS
+        SubnetAZa: !GetAtt NetworkStack.Outputs.SubnetAZa
+        SubnetAZb: !GetAtt NetworkStack.Outputs.SubnetAZb
+        SubnetAZc: !GetAtt NetworkStack.Outputs.SubnetAZc
+        ContainerRepoName: !Ref ContainerRepoName
+        SleepInSeconds: !Ref SleepInSeconds
+        LoggingLevelInContainer: !Ref LoggingLevelInContainer
 
 Outputs:
   ASGNodeLoadBalancerDNSAddress:
